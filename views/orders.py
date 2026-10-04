@@ -232,7 +232,7 @@ def _render_order_detail(order_id: str):
     
     if current in ("NEW", "PROCESSING", "READY_TO_PICK", "PICKING", "PACKED"):
         all_couriers = run_query("SELECT * FROM couriers WHERE is_active = 1")
-        courier_opts = {c["courier_id"]: f"{c['courier_name']} (₹{c['cost_per_order']}, {c['delivery_days']} days, cutoff {c['pickup_cutoff']})" for c in all_couriers}
+        courier_opts = {c["courier_id"]: f"{c['courier_name']} (₹{c['cost_per_order']}, {c['delivery_days']} days)" for c in all_couriers}
         
         current_c_id = order.get("courier_id")
         c_ids = list(courier_opts.keys())
