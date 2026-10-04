@@ -186,7 +186,7 @@ def seed():
     # ------------------------------------------------------------------
     # 4. Orders — ~1500 total, ~250 are "today"
     # ------------------------------------------------------------------
-    today = datetime(2026, 10, 4)
+    today = datetime.now()
     orders = []
     order_items_rows = []
     fulfillment_events = []

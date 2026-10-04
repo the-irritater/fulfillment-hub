@@ -229,11 +229,28 @@ def _render_order_detail(order_id: str):
     # Courier info
     # ------------------------------------------------------------------
     st.markdown("#### 🚚 Courier")
-    cc1, cc2, cc3, cc4 = st.columns(4)
-    cc1.metric("Courier", order.get("courier_name") or "—")
-    cc2.metric("Pickup Time", order.get("courier_pickup") or "—")
-    cc3.metric("Cost", f"₹{order.get('courier_cost', 0)}")
-    cc4.metric("Delivery", f"{order.get('delivery_days', '—')} days")
+    
+    if current in ("NEW", "PROCESSING", "READY_TO_PICK", "PICKING", "PACKED"):
+        all_couriers = run_query("SELECT * FROM couriers WHERE is_active = 1")
+        courier_opts = {c["courier_id"]: f"{c['courier_name']} (₹{c['cost_per_order']}, {c['delivery_days']} days, cutoff {c['pickup_cutoff']})" for c in all_couriers}
+        
+        current_c_id = order.get("courier_id")
+        c_ids = list(courier_opts.keys())
+        idx = c_ids.index(current_c_id) if current_c_id in c_ids else 0
+            
+        selected_c_id = st.selectbox("Assign Courier", c_ids, format_func=lambda x: courier_opts[x], index=idx, key=f"courier_sel_{order_id}")
+        
+        if selected_c_id != current_c_id:
+            if st.button("💾 Update Courier"):
+                run_execute("UPDATE orders SET courier_id = ? WHERE order_id = ?", (selected_c_id, order_id))
+                st.success("Courier updated!")
+                st.rerun()
+    else:
+        cc1, cc2, cc3, cc4 = st.columns(4)
+        cc1.metric("Courier", order.get("courier_name") or "—")
+        cc2.metric("Pickup Time", order.get("courier_pickup") or "—")
+        cc3.metric("Cost", f"₹{order.get('courier_cost', 0)}")
+        cc4.metric("Delivery", f"{order.get('delivery_days', '—')} days")
 
     # ------------------------------------------------------------------
     # Exceptions
@@ -273,10 +290,31 @@ def _render_order_detail(order_id: str):
                 "DELIVERED": "Mark Delivered",
             }
             btn_label = label_map.get(nxt, f"Move to {nxt}")
-            if st.button(f"✅ {btn_label}", use_container_width=True):
-                update_order_status(order_id, nxt)
-                st.success(f"Order updated to {nxt}")
-                st.rerun()
+            
+            # P1: Enforce valid order-state transitions
+            is_valid = True
+            error_msg = ""
+            
+            if nxt == "PACKED":
+                # Ensure all items are confirmed
+                unconfirmed = sum(1 for it in items if it.get("pick_status") != "CONFIRMED")
+                if unconfirmed > 0:
+                    is_valid = False
+                    error_msg = f"{unconfirmed} item(s) unconfirmed"
+            elif nxt == "READY_TO_PICK":
+                # Check if stock is sufficient
+                insufficient = sum(1 for it in items if (it.get("available_stock") or 0) < it["quantity"])
+                if insufficient > 0:
+                    is_valid = False
+                    error_msg = "Insufficient stock"
+            
+            if not is_valid:
+                st.button(f"🚫 Cannot {btn_label} ({error_msg})", disabled=True, use_container_width=True)
+            else:
+                if st.button(f"✅ {btn_label}", use_container_width=True):
+                    update_order_status(order_id, nxt)
+                    st.success(f"Order updated to {nxt}")
+                    st.rerun()
 
     if current in EXCEPTION_STATUSES:
         with ac2:

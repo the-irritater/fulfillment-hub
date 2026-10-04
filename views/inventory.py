@@ -186,26 +186,32 @@ def render():
                     with tc2:
                         if st.button("✅ Complete Transfer",
                                      key=f"complete_{t['transfer_id']}"):
-                            # Update transfer
-                            from utils.priority import current_time
-                            run_execute(
-                                "UPDATE transfers SET status = 'COMPLETED', "
-                                "completed_at = ? WHERE transfer_id = ?",
-                                (current_time().isoformat(), t["transfer_id"]),
-                            )
-                            # Update inventory
-                            run_execute(
-                                "UPDATE inventory SET quantity = quantity - ? "
-                                "WHERE sku = ? AND warehouse = ?",
-                                (t["quantity"], t["sku"], t["from_warehouse"]),
-                            )
-                            run_execute(
-                                "UPDATE inventory SET quantity = quantity + ? "
-                                "WHERE sku = ? AND warehouse = ?",
-                                (t["quantity"], t["sku"], t["to_warehouse"]),
-                            )
-                            st.success(f"Transfer #{t['transfer_id']} completed!")
-                            st.rerun()
+                            # Check stock
+                            from utils.db import run_query
+                            src_inv = run_query("SELECT quantity, reserved FROM inventory WHERE sku = ? AND warehouse = ?", (t["sku"], t["from_warehouse"]))
+                            if not src_inv or (src_inv[0]["quantity"] - src_inv[0]["reserved"]) < t["quantity"]:
+                                st.error(f"❌ Insufficient available stock in {t['from_warehouse']} warehouse to complete transfer.")
+                            else:
+                                # Update transfer
+                                from utils.priority import current_time
+                                run_execute(
+                                    "UPDATE transfers SET status = 'COMPLETED', "
+                                    "completed_at = ? WHERE transfer_id = ?",
+                                    (current_time().isoformat(), t["transfer_id"]),
+                                )
+                                # Update inventory
+                                run_execute(
+                                    "UPDATE inventory SET quantity = quantity - ? "
+                                    "WHERE sku = ? AND warehouse = ?",
+                                    (t["quantity"], t["sku"], t["from_warehouse"]),
+                                )
+                                run_execute(
+                                    "UPDATE inventory SET quantity = quantity + ? "
+                                    "WHERE sku = ? AND warehouse = ?",
+                                    (t["quantity"], t["sku"], t["to_warehouse"]),
+                                )
+                                st.success(f"Transfer #{t['transfer_id']} completed!")
+                                st.rerun()
                     with tc3:
                         if st.button("❌ Cancel",
                                      key=f"cancel_{t['transfer_id']}"):

@@ -17,14 +17,9 @@ Risk bands:
 
 from datetime import datetime, timedelta
 
-# Use a fixed "now" so the demo always looks correct relative to seed data.
-# In production you would use datetime.now().
-DEMO_NOW = datetime(2026, 10, 4, 14, 30)
-
-
 def current_time() -> datetime:
-    """Return the simulated current time (consistent with seed data)."""
-    return DEMO_NOW
+    """Return the actual current time."""
+    return datetime.now()
 
 
 def compute_priority_score(
