@@ -246,17 +246,17 @@ with st.sidebar:
 # Page routing
 # ---------------------------------------------------------------------------
 if "Dashboard" in page:
-    from pages.dashboard import render
+    from views.dashboard import render
     render()
 elif "Orders" in page:
-    from pages.orders import render
+    from views.orders import render
     render()
 elif "Inventory" in page:
-    from pages.inventory import render
+    from views.inventory import render
     render()
 elif "Picking" in page:
-    from pages.picking import render
+    from views.picking import render
     render()
 elif "Exceptions" in page:
-    from pages.exceptions import render
+    from views.exceptions import render
     render()
