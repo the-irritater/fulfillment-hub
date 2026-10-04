@@ -87,7 +87,7 @@ def render():
                 }
                 return colors.get(val, "")
 
-            styled = df.style.applymap(_color_status, subset=["Status"])
+            styled = df.style.map(_color_status, subset=["Status"])
             st.dataframe(styled, use_container_width=True, height=500)
 
             # ----------------------------------------------------------
