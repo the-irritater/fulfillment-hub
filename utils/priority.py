@@ -63,13 +63,16 @@ def compute_priority_score(
     if has_exception:
         score += 20
 
-    # 5. Courier pickup approaching
+    # 5. Courier pickup approaching or missed
     if courier_pickup_time and status in ("PACKED", "STAGED"):
         try:
             pickup_h, pickup_m = map(int, courier_pickup_time.split(":"))
             pickup_dt = now.replace(hour=pickup_h, minute=pickup_m, second=0)
-            if (pickup_dt - now) < timedelta(hours=1):
-                score += 15
+            time_diff = pickup_dt - now
+            if time_diff < timedelta(0):
+                score += 30  # Missed pickup
+            elif time_diff < timedelta(hours=1):
+                score += 15  # Approaching pickup
         except (ValueError, TypeError):
             pass
 

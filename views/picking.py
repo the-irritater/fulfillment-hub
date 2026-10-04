@@ -236,11 +236,8 @@ def _render_picking_screen(order_id: str):
             </div>
             """, unsafe_allow_html=True)
             if st.button("🔄 Retry Pick", key=f"retry_{order_id}_{item['sku']}"):
-                run_execute(
-                    "UPDATE order_items SET pick_status = 'PENDING', picked_sku = NULL "
-                    "WHERE order_id = ? AND sku = ?",
-                    (order_id, item["sku"]),
-                )
+                from utils.fulfillment import retry_pick
+                retry_pick(order_id, item["sku"])
                 st.rerun()
 
     # ------------------------------------------------------------------

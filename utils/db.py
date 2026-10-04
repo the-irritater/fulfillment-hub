@@ -34,3 +34,14 @@ def run_execute(sql: str, params: tuple = ()) -> None:
     conn = get_connection()
     conn.execute(sql, params)
     conn.commit()
+
+def run_transaction(queries: list[tuple[str, tuple]]) -> None:
+    """Execute multiple queries in a single transaction."""
+    conn = get_connection()
+    try:
+        for sql, params in queries:
+            conn.execute(sql, params)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise

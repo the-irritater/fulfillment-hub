@@ -221,6 +221,48 @@ def get_order_detail(order_id: str) -> dict | None:
 
 def update_order_status(order_id: str, new_status: str) -> None:
     """Update order status and record timestamp."""
+    
+    order = get_order_detail(order_id)
+    if not order:
+        raise ValueError(f"Order {order_id} not found")
+        
+    current = order["status"]
+    
+    # Validation Rules
+    if new_status == "PACKED":
+        unconfirmed = sum(1 for it in order["items"] if it.get("pick_status") != "CONFIRMED")
+        if unconfirmed > 0:
+            raise ValueError(f"Cannot pack order {order_id}: {unconfirmed} items unconfirmed")
+    elif new_status == "READY_TO_PICK":
+        insufficient = sum(1 for it in order["items"] if (it.get("available_stock") or 0) < it["quantity"])
+        if insufficient > 0:
+            raise ValueError(f"Cannot ready order {order_id} for pick: insufficient stock")
+    elif new_status == "SHIPPED":
+        if not order.get("courier_id"):
+            raise ValueError(f"Cannot ship order {order_id}: no courier assigned")
+
+    # Stock Reservation Logic
+    if current == "NEW" and new_status == "PROCESSING":
+        for item in order["items"]:
+            run_execute(
+                "UPDATE inventory SET reserved = reserved + ? WHERE sku = ? AND warehouse = 'Main'",
+                (item["quantity"], item["sku"]),
+            )
+            
+    if current != "CANCELLED" and new_status == "CANCELLED":
+        for item in order["items"]:
+            run_execute(
+                "UPDATE inventory SET reserved = MAX(0, reserved - ?) WHERE sku = ? AND warehouse = 'Main'",
+                (item["quantity"], item["sku"]),
+            )
+
+    if current != "SHIPPED" and new_status == "SHIPPED":
+        for item in order["items"]:
+            run_execute(
+                "UPDATE inventory SET quantity = MAX(0, quantity - ?), reserved = MAX(0, reserved - ?) WHERE sku = ? AND warehouse = 'Main'",
+                (item["quantity"], item["quantity"], item["sku"]),
+            )
+
     ts_col = timestamp_col_for_status(new_status)
     now_iso = current_time().isoformat()
     if ts_col:
@@ -284,3 +326,30 @@ def confirm_pick(order_id: str, sku: str, picked_sku: str) -> str:
             (order_id,),
         )
     return status
+
+def retry_pick(order_id: str, sku: str) -> None:
+    """Reset a mismatched pick, resolve the exception, and restore order status."""
+    # Reset item
+    run_execute(
+        "UPDATE order_items SET pick_status = 'PENDING', picked_sku = NULL "
+        "WHERE order_id = ? AND sku = ?",
+        (order_id, sku),
+    )
+    # Find active WRONG_SKU exception for this order
+    exc = run_query(
+        "SELECT exception_id FROM exceptions WHERE order_id = ? AND exception_type = 'WRONG_SKU' AND status IN ('Open', 'Investigating')",
+        (order_id,)
+    )
+    if exc:
+        now_iso = current_time().isoformat()
+        run_execute(
+            "UPDATE exceptions SET status = 'Resolved', resolved_at = ?, resolution_notes = 'Picker retried pick.' WHERE exception_id = ?",
+            (now_iso, exc[0]["exception_id"])
+        )
+    
+    # Check if there are any other MISMATCH items left
+    mismatches = run_query("SELECT COUNT(*) as cnt FROM order_items WHERE order_id = ? AND pick_status = 'MISMATCH'", (order_id,))
+    if mismatches and mismatches[0]["cnt"] == 0:
+        # Revert order to PICKING if it's still in PICKING_ISSUE
+        run_execute("UPDATE orders SET status = 'PICKING' WHERE order_id = ? AND status = 'PICKING_ISSUE'", (order_id,))
+

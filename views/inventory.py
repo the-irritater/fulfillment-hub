@@ -186,32 +186,48 @@ def render():
                     with tc2:
                         if st.button("✅ Complete Transfer",
                                      key=f"complete_{t['transfer_id']}"):
-                            # Check stock
-                            from utils.db import run_query
-                            src_inv = run_query("SELECT quantity, reserved FROM inventory WHERE sku = ? AND warehouse = ?", (t["sku"], t["from_warehouse"]))
-                            if not src_inv or (src_inv[0]["quantity"] - src_inv[0]["reserved"]) < t["quantity"]:
-                                st.error(f"❌ Insufficient available stock in {t['from_warehouse']} warehouse to complete transfer.")
+                            # Check stock and double completion
+                            from utils.db import run_query, run_transaction
+                            
+                            # Verify transfer is still eligible
+                            curr_t = run_query("SELECT status FROM transfers WHERE transfer_id = ?", (t["transfer_id"],))
+                            if not curr_t or curr_t[0]["status"] not in ("REQUESTED", "IN_TRANSIT"):
+                                st.error("❌ Transfer is no longer active.")
                             else:
-                                # Update transfer
-                                from utils.priority import current_time
-                                run_execute(
-                                    "UPDATE transfers SET status = 'COMPLETED', "
-                                    "completed_at = ? WHERE transfer_id = ?",
-                                    (current_time().isoformat(), t["transfer_id"]),
-                                )
-                                # Update inventory
-                                run_execute(
-                                    "UPDATE inventory SET quantity = quantity - ? "
-                                    "WHERE sku = ? AND warehouse = ?",
-                                    (t["quantity"], t["sku"], t["from_warehouse"]),
-                                )
-                                run_execute(
-                                    "UPDATE inventory SET quantity = quantity + ? "
-                                    "WHERE sku = ? AND warehouse = ?",
-                                    (t["quantity"], t["sku"], t["to_warehouse"]),
-                                )
-                                st.success(f"Transfer #{t['transfer_id']} completed!")
-                                st.rerun()
+                                src_inv = run_query("SELECT quantity, reserved FROM inventory WHERE sku = ? AND warehouse = ?", (t["sku"], t["from_warehouse"]))
+                                if not src_inv or (src_inv[0]["quantity"] - src_inv[0]["reserved"]) < t["quantity"]:
+                                    st.error(f"❌ Insufficient available stock in {t['from_warehouse']} warehouse to complete transfer.")
+                                else:
+                                    # Ensure destination inventory record exists
+                                    dst_inv = run_query("SELECT * FROM inventory WHERE sku = ? AND warehouse = ?", (t["sku"], t["to_warehouse"]))
+                                    queries = []
+                                    if not dst_inv:
+                                        queries.append((
+                                            "INSERT INTO inventory (sku, warehouse, quantity, reserved, min_threshold) VALUES (?, ?, 0, 0, 5)",
+                                            (t["sku"], t["to_warehouse"])
+                                        ))
+                                        
+                                    from utils.priority import current_time
+                                    queries.extend([
+                                        (
+                                            "UPDATE transfers SET status = 'COMPLETED', completed_at = ? WHERE transfer_id = ?",
+                                            (current_time().isoformat(), t["transfer_id"])
+                                        ),
+                                        (
+                                            "UPDATE inventory SET quantity = quantity - ? WHERE sku = ? AND warehouse = ?",
+                                            (t["quantity"], t["sku"], t["from_warehouse"])
+                                        ),
+                                        (
+                                            "UPDATE inventory SET quantity = quantity + ? WHERE sku = ? AND warehouse = ?",
+                                            (t["quantity"], t["sku"], t["to_warehouse"])
+                                        )
+                                    ])
+                                    try:
+                                        run_transaction(queries)
+                                        st.success(f"Transfer #{t['transfer_id']} completed!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Failed to complete transfer: {e}")
                     with tc3:
                         if st.button("❌ Cancel",
                                      key=f"cancel_{t['transfer_id']}"):
